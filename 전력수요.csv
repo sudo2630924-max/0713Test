@@ -1,19 +1,99 @@
-서울·양평 기온으로 열섬현상을 보고, 기온과 전력의 관계까지 살펴보는
-streamlit 웹앱을 만들려고 해. 탭 2개(st.tabs)로 나눠서 만들어줘.
- 
-[공통] 데이터는 같은 폴더에 세 파일이 있어. 모두 2025년 시간별 데이터야.
-  - "서울_기온.csv", "양평_기온.csv" : 열 이름 지점, 지점명, 일시, 기온(°C)
-  - "전력수요.csv" : 열 이름 일시, 전력수요(MWh)
-  한글 파일이라 pandas로 읽을 때 encoding="cp949"를 꼭 써줘.
- 
-[탭1: 열섬 분석] 서울과 양평 기온을 같은 일시끼리 합쳐서:
-  ① 1년간 두 지역 기온 변화 (선그래프)
-  ② 시각(0~23시)별 평균 기온차, 서울-양평 (막대그래프)
-  ③ 월(1~12월)별 평균 기온차, 서울-양평 (막대그래프)
- 
-[탭2: 전력 연결] 서울 기온과 전력수요를 같은 일시끼리 합쳐서:
-  ① 기온(가로)과 전력수요(세로)의 산점도
-  ② 기온 구간별 평균 전력수요 (막대그래프)
-  ③ 월(1~12월)별 평균 전력수요 (막대그래프)
- 
-라이브러리는 streamlit과 pandas만 사용해줘.
+import streamlit as st
+import pandas as pd
+
+st.set_page_config(page_title="도시 열섬과 전력수요 분석", layout="wide")
+
+st.title("🌆 도시 열섬현상과 전력수요 분석")
+st.write("2025년 서울·양평 기온과 전력수요 데이터를 이용한 분석")
+
+# -------------------------------
+# 데이터 읽기
+# -------------------------------
+seoul = pd.read_csv("서울_기온.csv", encoding="cp949")
+yang = pd.read_csv("양평_기온.csv", encoding="cp949")
+power = pd.read_csv("전력수요.csv", encoding="cp949")
+
+# 날짜 형식 변환
+seoul["일시"] = pd.to_datetime(seoul["일시"])
+yang["일시"] = pd.to_datetime(yang["일시"])
+power["일시"] = pd.to_datetime(power["일시"])
+
+# 필요한 열만 선택
+seoul = seoul[["일시", "기온(°C)"]].rename(columns={"기온(°C)": "서울"})
+yang = yang[["일시", "기온(°C)"]].rename(columns={"기온(°C)": "양평"})
+power = power[["일시", "전력수요(MWh)"]]
+
+# -------------------------------
+# 탭 생성
+# -------------------------------
+tab1, tab2 = st.tabs(["🌡️ 열섬 분석", "⚡ 전력 연결"])
+
+# =====================================================
+# 탭1 : 열섬 분석
+# =====================================================
+with tab1:
+
+    st.header("서울과 양평의 기온 비교")
+
+    df = pd.merge(seoul, yang, on="일시")
+
+    df["기온차"] = df["서울"] - df["양평"]
+    df["시간"] = df["일시"].dt.hour
+    df["월"] = df["일시"].dt.month
+
+    st.subheader("① 1년간 두 지역 기온 변화")
+    st.line_chart(df.set_index("일시")[["서울", "양평"]])
+
+    st.subheader("② 시각(0~23시)별 평균 기온차 (서울-양평)")
+    hour_diff = df.groupby("시간")["기온차"].mean()
+    st.bar_chart(hour_diff)
+
+    st.subheader("③ 월(1~12월)별 평균 기온차 (서울-양평)")
+    month_diff = df.groupby("월")["기온차"].mean()
+    st.bar_chart(month_diff)
+
+# =====================================================
+# 탭2 : 전력 연결
+# =====================================================
+with tab2:
+
+    st.header("서울 기온과 전력수요")
+
+    df2 = pd.merge(seoul, power, on="일시")
+
+    df2["월"] = df2["일시"].dt.month
+
+    # 기온 구간 생성
+    bins = [-20, -10, 0, 10, 20, 30, 40]
+    labels = [
+        "-10℃ 이하",
+        "-10~0℃",
+        "0~10℃",
+        "10~20℃",
+        "20~30℃",
+        "30℃ 이상",
+    ]
+
+    df2["기온구간"] = pd.cut(
+        df2["서울"],
+        bins=bins,
+        labels=labels,
+        include_lowest=True
+    )
+
+    st.subheader("① 기온과 전력수요의 관계")
+    st.scatter_chart(
+        df2,
+        x="서울",
+        y="전력수요(MWh)"
+    )
+
+    st.subheader("② 기온 구간별 평균 전력수요")
+    temp_power = df2.groupby("기온구간")["전력수요(MWh)"].mean()
+    st.bar_chart(temp_power)
+
+    st.subheader("③ 월(1~12월)별 평균 전력수요")
+    month_power = df2.groupby("월")["전력수요(MWh)"].mean()
+    st.bar_chart(month_power)
+
+    st.write("기온이 높거나 낮을수록 냉난방 사용이 증가하여 전력수요가 증가하는 경향을 확인할 수 있습니다.")
