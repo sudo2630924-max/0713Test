@@ -9,3 +9,6 @@ st.write("고른 숫자:", 숫자)
  
 if st.button("풍선 날리기"):
 	st.balloons()
+if st.button("풍선 날리기"):
+	st.balloons()
+
