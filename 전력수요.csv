@@ -1,101 +1,81 @@
 import streamlit as st
 import pandas as pd
 
-# -------------------------------
-# 페이지 설정
-# -------------------------------
-st.set_page_config(page_title="도시 열섬과 전력수요 분석", layout="wide")
+st.set_page_config(page_title="서울·양평 열섬 & 전력수요 분석", layout="wide")
+st.title("🌡️ 서울·양평 열섬현상 & 전력수요 분석")
 
-st.title("🌆 도시 열섬과 전력수요 분석")
 
-# -------------------------------
-# 데이터 읽기
-# -------------------------------
-seoul = pd.read_csv("서울_기온.csv", encoding="cp949")
-yang = pd.read_csv("양평_기온.csv", encoding="cp949")
-power = pd.read_csv("전력수요.csv", encoding="cp949")
+# ----------------------------
+# 데이터 로드
+# ----------------------------
+@st.cache_data
+def load_temp(filepath, region_name):
+    df = pd.read_csv(filepath, encoding="cp949")
+    df["일시"] = pd.to_datetime(df["일시"])
+    df = df[["일시", "기온(°C)"]].rename(columns={"기온(°C)": f"기온_{region_name}"})
+    return df
 
-# 날짜 형식 변환
-seoul["일시"] = pd.to_datetime(seoul["일시"])
-yang["일시"] = pd.to_datetime(yang["일시"])
-power["일시"] = pd.to_datetime(power["일시"])
 
-# 필요한 열만 선택
-seoul = seoul[["일시", "기온(°C)"]]
-seoul = seoul.rename(columns={"기온(°C)": "서울"})
+@st.cache_data
+def load_power(filepath):
+    df = pd.read_csv(filepath, encoding="cp949")
+    df["일시"] = pd.to_datetime(df["일시"])
+    return df
 
-yang = yang[["일시", "기온(°C)"]]
-yang = yang.rename(columns={"기온(°C)": "양평"})
 
-# -------------------------------
-# 탭 만들기
-# -------------------------------
-tab1, tab2 = st.tabs(["🌡️ 열섬 분석", "⚡ 전력 연결"])
+seoul = load_temp("서울_기온.csv", "서울")
+yangpyeong = load_temp("양평_기온.csv", "양평")
+power = load_power("전력수요.csv")
 
-# =====================================================
-# 탭1 : 열섬 분석
-# =====================================================
+# 탭1용: 서울-양평 기온 병합
+temp_df = pd.merge(seoul, yangpyeong, on="일시", how="inner")
+temp_df["기온차"] = temp_df["기온_서울"] - temp_df["기온_양평"]
+temp_df["시각"] = temp_df["일시"].dt.hour
+temp_df["월"] = temp_df["일시"].dt.month
+
+# 탭2용: 서울 기온-전력수요 병합
+power_df = pd.merge(seoul, power, on="일시", how="inner")
+power_df["월"] = power_df["일시"].dt.month
+
+
+tab1, tab2 = st.tabs(["🏙️ 열섬 분석", "⚡ 전력 연결"])
+
+# ============================================================
+# 탭1: 열섬 분석
+# ============================================================
 with tab1:
-
-    temp = pd.merge(seoul, yang, on="일시")
-
-    temp["기온차"] = temp["서울"] - temp["양평"]
-    temp["시간"] = temp["일시"].dt.hour
-    temp["월"] = temp["일시"].dt.month
+    st.header("서울 vs 양평 기온 비교 (열섬 분석)")
 
     st.subheader("① 1년간 두 지역 기온 변화")
-    st.line_chart(temp.set_index("일시")[["서울", "양평"]])
+    chart_df = temp_df.set_index("일시")[["기온_서울", "기온_양평"]]
+    st.line_chart(chart_df)
 
-    st.subheader("② 시각별 평균 기온차 (서울-양평)")
-    hour_mean = temp.groupby("시간")["기온차"].mean()
-    st.bar_chart(hour_mean)
+    st.subheader("② 시각(0~23시)별 평균 기온차 (서울 - 양평)")
+    hourly_diff = temp_df.groupby("시각")["기온차"].mean()
+    st.bar_chart(hourly_diff)
 
-    st.subheader("③ 월별 평균 기온차 (서울-양평)")
-    month_mean = temp.groupby("월")["기온차"].mean()
-    st.bar_chart(month_mean)
+    st.subheader("③ 월(1~12월)별 평균 기온차 (서울 - 양평)")
+    monthly_diff = temp_df.groupby("월")["기온차"].mean()
+    st.bar_chart(monthly_diff)
 
-# =====================================================
-# 탭2 : 전력 연결
-# =====================================================
+# ============================================================
+# 탭2: 전력 연결
+# ============================================================
 with tab2:
+    st.header("서울 기온과 전력수요의 관계")
 
-    power_data = pd.merge(seoul, power, on="일시")
-
-    power_data["월"] = power_data["일시"].dt.month
-
-    bins = [-50, -10, 0, 10, 20, 30, 50]
-    labels = [
-        "-10℃ 이하",
-        "-10~0℃",
-        "0~10℃",
-        "10~20℃",
-        "20~30℃",
-        "30℃ 이상"
-    ]
-
-    power_data["기온구간"] = pd.cut(
-        power_data["서울"],
-        bins=bins,
-        labels=labels,
-        include_lowest=True
-    )
-
-    st.subheader("① 기온과 전력수요의 관계")
-
-    scatter = power_data[["서울", "전력수요(MWh)"]]
-    scatter = scatter.rename(columns={
-        "서울": "기온",
-        "전력수요(MWh)": "전력수요"
-    })
-
-    st.scatter_chart(scatter, x="기온", y="전력수요")
+    st.subheader("① 기온 vs 전력수요 산점도")
+    st.scatter_chart(power_df, x="기온_서울", y="전력수요(MWh)")
 
     st.subheader("② 기온 구간별 평균 전력수요")
+    min_t = power_df["기온_서울"].min()
+    max_t = power_df["기온_서울"].max()
+    bins = list(range(int(min_t // 5 * 5), int(max_t // 5 * 5) + 10, 5))
+    labels = [f"{b}~{b+5}°C" for b in bins[:-1]]
+    power_df["기온구간"] = pd.cut(power_df["기온_서울"], bins=bins, labels=labels, right=False)
+    bin_power = power_df.groupby("기온구간", observed=True)["전력수요(MWh)"].mean()
+    st.bar_chart(bin_power)
 
-    temp_power = power_data.groupby("기온구간")["전력수요(MWh)"].mean()
-    st.bar_chart(temp_power)
-
-    st.subheader("③ 월별 평균 전력수요")
-
-    month_power = power_data.groupby("월")["전력수요(MWh)"].mean()
-    st.bar_chart(month_power)
+    st.subheader("③ 월(1~12월)별 평균 전력수요")
+    monthly_power = power_df.groupby("월")["전력수요(MWh)"].mean()
+    st.bar_chart(monthly_power)
